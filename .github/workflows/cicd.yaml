@@ -3,7 +3,7 @@ name: CI + CD
 on:
   push:
     branches:
-      - develop
+      - Development
       - main
   workflow_dispatch:
 
@@ -17,7 +17,7 @@ jobs:
 
   DeployDev:
     name: Deploy to Development
-    if: github.ref_name == 'develop'
+    if: github.ref_name == 'Development'
     needs: [Build]
     runs-on: ubuntu-latest
     environment:
@@ -29,7 +29,6 @@ jobs:
 
   DeployQA:
     name: Deploy to QA
-    if: github.ref_name == 'develop'
     needs: [DeployDev]
     runs-on: ubuntu-latest
     environment:
@@ -41,7 +40,6 @@ jobs:
 
   DeployStaging:
     name: Deploy to Staging
-    if: github.ref_name == 'develop'
     needs: [DeployQA]
     runs-on: ubuntu-latest
     environment:
