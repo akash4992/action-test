@@ -2,106 +2,77 @@ name: CI + CD + Deploy
 
 on:
   push:
-    branches:
-      - Development
-      - main
+    branches: [Development, main]
   workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
+  IMAGE_NAME: myapp/nginx
+
 jobs:
-  # ========== BUILD + DEPLOY DEV ==========
-  BuildDev:
+
+  # ==================== BUILD FOR DEVELOPMENT ====================
+  BuildImageDev:
     if: github.ref_name == 'Development'
     runs-on: ubuntu-latest
-    environment:
-      name: Development
+    environment: Development
+    outputs:
+      image_tag: ${{ steps.set_tag.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v2
 
-      - name: Build and Push Docker Image (Dev)
-        run: |
+      - name: Set Image Tag
+        id: set_tag
+        run: echo "image_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
-          docker build \
-            -t nginx:latest .
+      - name: Build Docker Image
+        run: docker build -t $IMAGE_NAME:${{ steps.set_tag.outputs.image_tag }} .
 
   DeployDev:
-    needs: BuildDev
-    runs-on: ubuntu-latest
-    environment:
-      name: Development
-    steps:
-      - run: echo "Deploying Dev environment..."
-
-  # ========== BUILD + DEPLOY QA ==========
-  BuildQA:
     if: github.ref_name == 'Development'
-    needs: DeployDev
+    needs: BuildImageDev
     runs-on: ubuntu-latest
-    environment:
-      name: QA
+    environment: Development
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Build and Push Docker Image (QA)
-        run: |
-          IMAGE_TAG=qa-${{ github.sha }}
-          docker build \
-            -t nginx:latest .
-
+      - run: echo "Deploying DEV with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
 
   DeployQA:
-    needs: BuildQA
-    runs-on: ubuntu-latest
-    environment:
-      name: QA
-    steps:
-      - run: echo "Deploying QA environment..."
-
-  # ========== BUILD + DEPLOY STAGING ==========
-  BuildStaging:
     if: github.ref_name == 'Development'
-    needs: DeployQA
+    needs: BuildImageDev
     runs-on: ubuntu-latest
-    environment:
-      name: Staging
+    environment: QA
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Build and Push Docker Image (Staging)
-        run: |
-          IMAGE_TAG=staging-${{ github.sha }}
-          docker build \
-            -t nginx:latest .
-
+      - run: echo "Deploying QA with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
 
   DeployStaging:
-    needs: BuildStaging
+    if: github.ref_name == 'Development'
+    needs: BuildImageDev
     runs-on: ubuntu-latest
-    environment:
-      name: Staging
+    environment: Staging
     steps:
-      - run: echo "Deploying Staging environment..."
+      - run: echo "Deploying STAGING with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
 
-  # ========== BUILD + DEPLOY PRODUCTION ==========
-  BuildProd:
+  # ==================== BUILD FOR PRODUCTION ====================
+  BuildImageProd:
     if: github.ref_name == 'main'
     runs-on: ubuntu-latest
-    environment:
-      name: Production
+    environment: Production
+    outputs:
+      image_tag: ${{ steps.set_tag.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v2
 
-      - name: Build and Push Docker Image (Prod)
-        run: |
-          IMAGE_TAG=prod-${{ github.sha }}
-          docker build \
-            -t nginx:latest .
+      - name: Set Image Tag
+        id: set_tag
+        run: echo "image_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Build Docker Image
+        run: docker build -t $IMAGE_NAME:${{ steps.set_tag.outputs.image_tag }} .
 
   DeployProd:
-    needs: BuildProd
+    if: github.ref_name == 'main'
+    needs: BuildImageProd
     runs-on: ubuntu-latest
-    environment:
-      name: Production
+    environment: Production
     steps:
-      - run: echo "Deploying Production environment..."
+      - run: echo "Deploying PROD with image: ${{ needs.BuildImageProd.outputs.image_tag }}"
