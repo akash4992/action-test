@@ -29,7 +29,6 @@ jobs:
 
   DeployQA:
     name: Deploy to QA
-    if: github.ref_name == 'develop'
     needs: [DeployDev]
     runs-on: ubuntu-latest
     environment:
@@ -41,7 +40,6 @@ jobs:
 
   DeployStaging:
     name: Deploy to Staging
-    if: github.ref_name == 'develop'
     needs: [DeployQA]
     runs-on: ubuntu-latest
     environment:
