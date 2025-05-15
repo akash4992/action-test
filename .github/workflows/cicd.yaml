@@ -2,9 +2,9 @@ name: CI + CD
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - develop
+      - main
   workflow_dispatch:
 
 jobs:
@@ -12,42 +12,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-
       - name: Compile
-        run: echo Hello, world!
-    
+        run: echo "Hello, world!"
+
   DeployDev:
-    name: Deploy to Dev 
-    if: github.event_name == 'pull_request'
+    name: Deploy to Development
+    if: github.ref_name == 'develop'
     needs: [Build]
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: Development
       url: 'http://dev.myapp.com'
     steps:
       - name: Deploy
-        run: echo I am deploying! 
-    
-  DeployStaging:
-    name: Deploy to Staging 
-    if: github.event.ref == 'refs/heads/main'
-    needs: [Build]
+        run: echo "Deploying to Development..."
+
+  DeployQA:
+    name: Deploy to QA
+    if: github.ref_name == 'develop'
+    needs: [DeployDev]
     runs-on: ubuntu-latest
-    environment: 
-      name: Staging
-      url: 'http://test.myapp.com'
+    environment:
+      name: QA
+      url: 'http://qa.myapp.com'
     steps:
       - name: Deploy
-        run: echo I am deploying! 
-            
-  DeployProd:
-    name: Deploy to Production 
-    needs: [DeployStaging]
+        run: echo "Deploying to QA..."
+
+  DeployStaging:
+    name: Deploy to Staging
+    if: github.ref_name == 'develop'
+    needs: [DeployQA]
     runs-on: ubuntu-latest
-    environment: 
+    environment:
+      name: Staging
+      url: 'http://staging.myapp.com'
+    steps:
+      - name: Deploy
+        run: echo "Deploying to Staging..."
+
+  DeployProd:
+    name: Deploy to Production
+    if: github.ref_name == 'main'
+    needs: [Build]
+    runs-on: ubuntu-latest
+    environment:
       name: Production
       url: 'http://www.myapp.com'
     steps:
       - name: Deploy
-        run: echo I am deploying! 
-    
+        run: echo "Deploying to Production..."
