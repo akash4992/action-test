@@ -17,7 +17,7 @@ jobs:
 
   DeployDev:
     name: Deploy to Development
-    if: github.ref_name == 'develop'
+    if: github.ref_name == 'Development'
     needs: [Build]
     runs-on: ubuntu-latest
     environment:
