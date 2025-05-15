@@ -2,7 +2,9 @@ name: CI + CD + Deploy
 
 on:
   push:
-    branches: [Development, main]
+    branches: 
+      - Development
+      - main
   workflow_dispatch:
 
 env:
