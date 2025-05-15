@@ -1,0 +1,458 @@
+name: Deploy AI Modules
+
+on:
+  push:
+    paths:
+      - "complexityAI/**"
+      - "etiologyAI/**"
+      - "rafAI/**"
+      - "interventionAI/**"
+      - "droolsAPI/**"
+      - "productAI_v02_1/**"
+      - "reimbursementAI/**"
+      - "careplanAI/**"
+      - "CarePlanGeneration/**"
+    branches:
+      - develop
+      - main
+
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: "us-east-1"
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed directories
+        id: set-matrix
+        run: |
+          echo "Detecting changes..."
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # For PR, compare base and head
+            changed_dirs=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep -E '^(complexityAI|etiologyAI|rafAI|interventionAI|productAI_v02_1|reimbursementAI|careplanAI|droolsAPI|CarePlanGeneration)/' | cut -d/ -f1 | sort | uniq)
+          else
+            # For push, compare with previous commit
+            changed_dirs=$(git diff --name-only HEAD^ HEAD | grep -E '^(complexityAI|etiologyAI|rafAI|interventionAI|productAI_v02_1|reimbursementAI|careplanAI|droolsAPI|CarePlanGeneration)/' | cut -d/ -f1 | sort | uniq)
+          fi
+          echo "Detected changes: $changed_dirs"
+          matrix_json=$(echo "$changed_dirs" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
+
+  build-and-push:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: ${{ fromJson(needs.detect-changes.outputs.matrix || '[]') }}
+    outputs:
+      image_tag: ${{ steps.set-output.outputs.image_tag }}
+      directories: ${{ needs.detect-changes.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: github-oidc
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set build-only environment values
+        run: |
+          # Get base repository name based on directory
+          case "${{ matrix.directory }}" in
+            "complexityAI") BASE_REPO="complexity-ai" ;;
+            "etiologyAI") BASE_REPO="etiology-ai" ;;
+            "rafAI") BASE_REPO="raf-ai" ;;
+            "interventionAI") BASE_REPO="intervention-ai" ;;
+            "droolsAPI") BASE_REPO="drools-api" ;;
+            "productAI_v02_1") BASE_REPO="product-ai" ;;
+            "reimbursementAI") BASE_REPO="reimbursement-ai" ;;
+            "careplanAI") BASE_REPO="careplan-ai" ;;
+            "CarePlanGeneration") BASE_REPO="careplan-generation" ;;
+            *) echo "Unknown directory: ${{ matrix.directory }}"; exit 1 ;;
+          esac
+          echo "BASE_REPO=$BASE_REPO" >> $GITHUB_ENV
+          
+          # Set image tag
+          echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+
+      - name: Build Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "Building Docker image for ${{ matrix.directory }}..."
+          docker build -f ${{ matrix.directory }}/Dockerfile \
+            -t $ECR_REGISTRY/${{ env.BASE_REPO }}:${{ env.IMAGE_TAG }} \
+            ./${{ matrix.directory }}
+
+      - name: Push Docker image to shared registry
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "Pushing Docker image..."
+          docker push $ECR_REGISTRY/${{ env.BASE_REPO }}:${{ env.IMAGE_TAG }}
+
+      - name: Set output
+        id: set-output
+        run: |
+          echo "image_tag=${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
+
+  deploy-dev:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: ${{ fromJson(needs.build-and-push.outputs.directories || '[]') }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: github-oidc
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set dev environment values
+        run: |
+          # Set environment-specific values for dev
+          case "${{ matrix.directory }}" in
+            "complexityAI")
+              echo "ECR_REPOSITORY=complexity-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-complexity-ai" >> $GITHUB_ENV
+              ;;
+            "etiologyAI")
+              echo "ECR_REPOSITORY=etiology-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-etiology-ai" >> $GITHUB_ENV
+              ;;
+            "rafAI")
+              echo "ECR_REPOSITORY=raf-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-raf-ai" >> $GITHUB_ENV
+              ;;
+            "interventionAI")
+              echo "ECR_REPOSITORY=intervention-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-intervention-ai" >> $GITHUB_ENV
+              ;;
+            "droolsAPI")
+              echo "ECR_REPOSITORY=drools-api" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-drools-api" >> $GITHUB_ENV
+              ;;
+            "productAI_v02_1")
+              echo "ECR_REPOSITORY=dev-product-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-product-ai" >> $GITHUB_ENV
+              ;;
+            "reimbursementAI")
+              echo "ECR_REPOSITORY=dev-reimbursement-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-reimbursement-ai" >> $GITHUB_ENV
+              ;;
+            "careplanAI")
+              echo "ECR_REPOSITORY=dev-careplan-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-careplan-ai" >> $GITHUB_ENV
+              ;;
+            "CarePlanGeneration")
+              echo "ECR_REPOSITORY=dev-careplan-generation" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=development-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=dev-careplan-generation" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Update ECS service
+        run: |
+          echo "Updating ECS service for dev environment..."
+          aws ecs update-service \
+            --region ${{ env.AWS_REGION }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.SERVICE_NAME }} \
+            --force-new-deployment
+
+      - name: Wait for deployment to stabilize
+        run: |
+          echo "Waiting for ECS service to stabilize..."
+          aws ecs wait services-stable \
+            --region ${{ env.AWS_REGION }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.SERVICE_NAME }}
+
+  deploy-qa:
+    needs: [build-and-push, deploy-dev]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: qa
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: ${{ fromJson(needs.build-and-push.outputs.directories || '[]') }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: github-oidc
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set QA environment values
+        run: |
+          # Set environment-specific values for QA
+          case "${{ matrix.directory }}" in
+            "complexityAI")
+              echo "ECR_REPOSITORY=qa-complexity-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-complexity-ai" >> $GITHUB_ENV
+              ;;
+            "etiologyAI")
+              echo "ECR_REPOSITORY=qa-etiology-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-etiology-ai" >> $GITHUB_ENV
+              ;;
+            "rafAI")
+              echo "ECR_REPOSITORY=qa-raf-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-raf-ai" >> $GITHUB_ENV
+              ;;
+            "interventionAI")
+              echo "ECR_REPOSITORY=qa-intervention-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-intervention-ai" >> $GITHUB_ENV
+              ;;
+            "droolsAPI")
+              echo "ECR_REPOSITORY=qa-drools-api" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-drools-api" >> $GITHUB_ENV
+              ;;
+            "productAI_v02_1")
+              echo "ECR_REPOSITORY=qa-product-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-product-ai" >> $GITHUB_ENV
+              ;;
+            "reimbursementAI")
+              echo "ECR_REPOSITORY=qa-reimbursement-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-reimbursement-ai" >> $GITHUB_ENV
+              ;;
+            "careplanAI")
+              echo "ECR_REPOSITORY=qa-careplan-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-careplan-ai" >> $GITHUB_ENV
+              ;;
+            "CarePlanGeneration")
+              echo "ECR_REPOSITORY=qa-careplan-generation" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=qa-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=qa-careplan-generation" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Update ECS service
+        run: |
+          echo "Updating ECS service for QA environment..."
+          aws ecs update-service \
+            --region ${{ env.AWS_REGION }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.SERVICE_NAME }} \
+            --force-new-deployment
+
+      - name: Wait for deployment to stabilize
+        run: |
+          echo "Waiting for ECS service to stabilize..."
+          aws ecs wait services-stable \
+            --region ${{ env.AWS_REGION }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.SERVICE_NAME }}
+
+  deploy-staging:
+    needs: [build-and-push, deploy-qa]
+    runs-on: ubuntu-latest
+    environment: staging
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: ${{ fromJson(needs.build-and-push.outputs.directories || '[]') }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: github-oidc
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set staging environment values
+        run: |
+          # Set environment-specific values for staging
+          case "${{ matrix.directory }}" in
+            "complexityAI")
+              echo "ECR_REPOSITORY=staging-complexity-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-complexity-ai" >> $GITHUB_ENV
+              ;;
+            "etiologyAI")
+              echo "ECR_REPOSITORY=staging-etiology-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-etiology-ai" >> $GITHUB_ENV
+              ;;
+            "rafAI")
+              echo "ECR_REPOSITORY=staging-raf-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-raf-ai" >> $GITHUB_ENV
+              ;;
+            "interventionAI")
+              echo "ECR_REPOSITORY=staging-intervention-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-intervention-ai" >> $GITHUB_ENV
+              ;;
+            "droolsAPI")
+              echo "ECR_REPOSITORY=staging-drools-api" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-drools-api" >> $GITHUB_ENV
+              ;;
+            "productAI_v02_1")
+              echo "ECR_REPOSITORY=staging-product-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-product-ai" >> $GITHUB_ENV
+              ;;
+            "reimbursementAI")
+              echo "ECR_REPOSITORY=staging-reimbursement-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-reimbursement-ai" >> $GITHUB_ENV
+              ;;
+            "careplanAI")
+              echo "ECR_REPOSITORY=staging-careplan-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-careplan-ai" >> $GITHUB_ENV
+              ;;
+            "CarePlanGeneration")
+              echo "ECR_REPOSITORY=staging-careplan-generation" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=staging-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=staging-careplan-generation" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Update ECS service
+        run: |
+          echo "Updating ECS service for staging environment..."
+          aws ecs update-service \
+            --region ${{ env.AWS_REGION }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.SERVICE_NAME }} \
+            --force-new-deployment
+
+      - name: Wait for deployment to stabilize
+        run: |
+          echo "Waiting for ECS service to stabilize..."
+          aws ecs wait services-stable \
+            --region ${{ env.AWS_REGION }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.SERVICE_NAME }}
+
+  deploy-prod:
+    needs: build-and-push
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment: prod
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: ${{ fromJson(needs.build-and-push.outputs.directories || '[]') }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: github-oidc
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set prod environment values
+        run: |
+          # Set environment-specific values for prod
+          case "${{ matrix.directory }}" in
+            "complexityAI")
+              echo "ECR_REPOSITORY=prod-complexity-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-complexity-ai" >> $GITHUB_ENV
+              ;;
+            "etiologyAI")
+              echo "ECR_REPOSITORY=prod-etiology-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-etiology-ai" >> $GITHUB_ENV
+              ;;
+            "rafAI")
+              echo "ECR_REPOSITORY=prod-raf-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-raf-ai" >> $GITHUB_ENV
+              ;;
+            "interventionAI")
+              echo "ECR_REPOSITORY=prod-intervention-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-intervention-ai" >> $GITHUB_ENV
+              ;;
+            "droolsAPI")
+              echo "ECR_REPOSITORY=prod-drools-api" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-drools-api" >> $GITHUB_ENV
+              ;;
+            "productAI_v02_1")
+              echo "ECR_REPOSITORY=prod-product-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-product-ai" >> $GITHUB_ENV
+              ;;
+            "reimbursementAI")
+              echo "ECR_REPOSITORY=prod-reimbursement-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-reimbursement-ai" >> $GITHUB_ENV
+              ;;
+            "careplanAI")
+              echo "ECR_REPOSITORY=prod-careplan-ai" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-careplan-ai" >> $GITHUB_ENV
+              ;;
+            "CarePlanGeneration")
+              echo "ECR_REPOSITORY=prod-careplan-generation" >> $GITHUB_ENV
+              echo "ECS_CLUSTER=production-cluster" >> $GITHUB_ENV
+              echo "SERVICE_NAME=prod-careplan-generation" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Update ECS service
+        run: |
+          echo "Updating ECS service for prod environment..."
+          aws ecs update-service \
+            --region ${{ env.AWS_REGION }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.SERVICE_NAME }} \
+            --force-new-deployment
+
+      - name: Wait for deployment to stabilize
+        run: |
+          echo "Waiting for ECS service to stabilize..."
+          aws ecs wait services-stable \
+            --region ${{ env.AWS_REGION }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.SERVICE_NAME }}
+
+  

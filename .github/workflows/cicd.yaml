@@ -3,78 +3,60 @@ name: CI + CD + Deploy
 on:
   push:
     branches:
-      - Development
+      - develop
       - main
   workflow_dispatch:
 
-env:
-  AWS_REGION: us-east-1
-  IMAGE_NAME: myapp/nginx
-
 jobs:
-
-  BuildImageDev:
-    if: startsWith(github.ref, 'refs/heads/Development')
+  Build:
     runs-on: ubuntu-latest
-    environment: Development
-    outputs:
-      image_tag: ${{ steps.set_tag.outputs.image_tag }}
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Set Image Tag
-        id: set_tag
-        run: |
-          echo "image_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
-
-      - name: Build Docker Image
-        run: docker build -t $IMAGE_NAME:${{ steps.set_tag.outputs.image_tag }} .
+      - uses: actions/checkout@v2
+      - name: Compile
+        run: echo "Hello, world!"
 
   DeployDev:
-    if: startsWith(github.ref, 'refs/heads/Development')
-    needs: BuildImageDev
+    name: Deploy to Development
+    if: github.ref_name == 'develop'
+    needs: [Build]
     runs-on: ubuntu-latest
-    environment: Development
+    environment:
+      name: Development
+      url: 'http://dev.myapp.com'
     steps:
-      - run: echo "Deploying DEV with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
+      - name: Deploy
+        run: echo "Deploying to Development..."
 
   DeployQA:
-    if: startsWith(github.ref, 'refs/heads/Development')
-    needs: BuildImageDev
+    name: Deploy to QA
+    needs: [DeployDev]
     runs-on: ubuntu-latest
-    environment: QA
+    environment:
+      name: QA
+      url: 'http://qa.myapp.com'
     steps:
-      - run: echo "Deploying QA with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
+      - name: Deploy
+        run: echo "Deploying to QA..."
 
   DeployStaging:
-    if: startsWith(github.ref, 'refs/heads/Development')
-    needs: BuildImageDev
+    name: Deploy to Staging
+    needs: [DeployQA]
     runs-on: ubuntu-latest
-    environment: Staging
+    environment:
+      name: Staging
+      url: 'http://staging.myapp.com'
     steps:
-      - run: echo "Deploying STAGING with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
-
-  BuildImageProd:
-    if: startsWith(github.ref, 'refs/heads/main')
-    runs-on: ubuntu-latest
-    environment: Production
-    outputs:
-      image_tag: ${{ steps.set_tag.outputs.image_tag }}
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set Image Tag
-        id: set_tag
-        run: |
-          echo "image_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
-
-      - name: Build Docker Image
-        run: docker build -t $IMAGE_NAME:${{ steps.set_tag.outputs.image_tag }} .
+      - name: Deploy
+        run: echo "Deploying to Staging..."
 
   DeployProd:
-    if: startsWith(github.ref, 'refs/heads/main')
-    needs: BuildImageProd
+    name: Deploy to Production
+    if: github.ref_name == 'main'
+    needs: [Build]
     runs-on: ubuntu-latest
-    environment: Production
+    environment:
+      name: Production
+      url: 'http://www.myapp.com'
     steps:
-      - run: echo "Deploying PROD with image: ${{ needs.BuildImageProd.outputs.image_tag }}"
+      - name: Deploy
+        run: echo "Deploying to Production..."
