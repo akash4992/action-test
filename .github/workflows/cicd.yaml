@@ -24,7 +24,8 @@ jobs:
 
       - name: Set Image Tag
         id: set_tag
-        run: echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "image_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
       - name: Build Docker Image
         run: docker build -t $IMAGE_NAME:${{ steps.set_tag.outputs.image_tag }} .
@@ -64,7 +65,8 @@ jobs:
 
       - name: Set Image Tag
         id: set_tag
-        run: echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "image_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
       - name: Build Docker Image
         run: docker build -t $IMAGE_NAME:${{ steps.set_tag.outputs.image_tag }} .
