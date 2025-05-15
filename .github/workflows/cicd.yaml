@@ -13,9 +13,8 @@ env:
 
 jobs:
 
-  # ==================== BUILD FOR DEVELOPMENT ====================
   BuildImageDev:
-    if: github.ref_name == 'Development'
+    if: startsWith(github.ref, 'refs/heads/Development')
     runs-on: ubuntu-latest
     environment: Development
     outputs:
@@ -31,7 +30,7 @@ jobs:
         run: docker build -t $IMAGE_NAME:${{ steps.set_tag.outputs.image_tag }} .
 
   DeployDev:
-    if: github.ref_name == 'Development'
+    if: startsWith(github.ref, 'refs/heads/Development')
     needs: BuildImageDev
     runs-on: ubuntu-latest
     environment: Development
@@ -39,7 +38,7 @@ jobs:
       - run: echo "Deploying DEV with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
 
   DeployQA:
-    if: github.ref_name == 'Development'
+    if: startsWith(github.ref, 'refs/heads/Development')
     needs: BuildImageDev
     runs-on: ubuntu-latest
     environment: QA
@@ -47,16 +46,15 @@ jobs:
       - run: echo "Deploying QA with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
 
   DeployStaging:
-    if: github.ref_name == 'Development'
+    if: startsWith(github.ref, 'refs/heads/Development')
     needs: BuildImageDev
     runs-on: ubuntu-latest
     environment: Staging
     steps:
       - run: echo "Deploying STAGING with image: ${{ needs.BuildImageDev.outputs.image_tag }}"
 
-  # ==================== BUILD FOR PRODUCTION ====================
   BuildImageProd:
-    if: github.ref_name == 'main'
+    if: startsWith(github.ref, 'refs/heads/main')
     runs-on: ubuntu-latest
     environment: Production
     outputs:
@@ -72,7 +70,7 @@ jobs:
         run: docker build -t $IMAGE_NAME:${{ steps.set_tag.outputs.image_tag }} .
 
   DeployProd:
-    if: github.ref_name == 'main'
+    if: startsWith(github.ref, 'refs/heads/main')
     needs: BuildImageProd
     runs-on: ubuntu-latest
     environment: Production
