@@ -7,56 +7,126 @@ on:
       - main
   workflow_dispatch:
 
-jobs:
-  Build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Compile
-        run: echo "Hello, world!"
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: <your-account-id>.dkr.ecr.us-east-1.amazonaws.com/<your-repo-name>
 
-  DeployDev:
-    name: Deploy to Development
+jobs:
+  # ========== BUILD + DEPLOY DEV ==========
+  BuildDev:
     if: github.ref_name == 'Development'
-    needs: [Build]
     runs-on: ubuntu-latest
     environment:
       name: Development
-      url: 'http://dev.myapp.com'
     steps:
-      - name: Deploy
-        run: echo "Deploying to Development..."
+      - uses: actions/checkout@v2
 
-  DeployQA:
-    name: Deploy to QA
-    needs: [DeployDev]
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and Push Docker Image (Dev)
+        run: |
+          IMAGE_TAG=dev-${{ github.sha }}
+          docker build \
+            --build-arg ENVIRONMENT=development \
+            -t $ECR_REPOSITORY:$IMAGE_TAG .
+
+  DeployDev:
+    needs: BuildDev
+    runs-on: ubuntu-latest
+    environment:
+      name: Development
+    steps:
+      - run: echo "Deploying Dev environment..."
+
+  # ========== BUILD + DEPLOY QA ==========
+  BuildQA:
+    if: github.ref_name == 'Development'
+    needs: DeployDev
     runs-on: ubuntu-latest
     environment:
       name: QA
-      url: 'http://qa.myapp.com'
     steps:
-      - name: Deploy
-        run: echo "Deploying to QA..."
+      - uses: actions/checkout@v2
 
-  DeployStaging:
-    name: Deploy to Staging
-    needs: [DeployQA]
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and Push Docker Image (QA)
+        run: |
+          IMAGE_TAG=qa-${{ github.sha }}
+          docker build \
+            --build-arg ENVIRONMENT=qa \
+            -t $ECR_REPOSITORY:$IMAGE_TAG .
+
+
+  DeployQA:
+    needs: BuildQA
+    runs-on: ubuntu-latest
+    environment:
+      name: QA
+    steps:
+      - run: echo "Deploying QA environment..."
+
+  # ========== BUILD + DEPLOY STAGING ==========
+  BuildStaging:
+    if: github.ref_name == 'Development'
+    needs: DeployQA
     runs-on: ubuntu-latest
     environment:
       name: Staging
-      url: 'http://staging.myapp.com'
     steps:
-      - name: Deploy
-        run: echo "Deploying to Staging..."
+      - uses: actions/checkout@v2
 
-  DeployProd:
-    name: Deploy to Production
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and Push Docker Image (Staging)
+        run: |
+          IMAGE_TAG=staging-${{ github.sha }}
+          docker build \
+            --build-arg ENVIRONMENT=staging \
+            -t $ECR_REPOSITORY:$IMAGE_TAG .
+
+
+  DeployStaging:
+    needs: BuildStaging
+    runs-on: ubuntu-latest
+    environment:
+      name: Staging
+    steps:
+      - run: echo "Deploying Staging environment..."
+
+  # ========== BUILD + DEPLOY PRODUCTION ==========
+  BuildProd:
     if: github.ref_name == 'main'
-    needs: [Build]
     runs-on: ubuntu-latest
     environment:
       name: Production
-      url: 'http://www.myapp.com'
     steps:
-      - name: Deploy
-        run: echo "Deploying to Production..."
+      - uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and Push Docker Image (Prod)
+        run: |
+          IMAGE_TAG=prod-${{ github.sha }}
+          docker build \
+            --build-arg ENVIRONMENT=production \
+            -t $ECR_REPOSITORY:$IMAGE_TAG .
+
+  DeployProd:
+    needs: BuildProd
+    runs-on: ubuntu-latest
+    environment:
+      name: Production
+    steps:
+      - run: echo "Deploying Production environment..."
