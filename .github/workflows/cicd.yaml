@@ -21,9 +21,9 @@ jobs:
 
       - name: Build and Push Docker Image (Dev)
         run: |
-          IMAGE_TAG=dev-${{ github.sha }}
+
           docker build \
-            -t $ECR_REPOSITORY:$IMAGE_TAG .
+            -t $ECR_REPOSITORY:latest .
 
   DeployDev:
     needs: BuildDev
@@ -47,7 +47,7 @@ jobs:
         run: |
           IMAGE_TAG=qa-${{ github.sha }}
           docker build \
-            -t $ECR_REPOSITORY:$IMAGE_TAG .
+            -t $ECR_REPOSITORY:latest .
 
 
   DeployQA:
@@ -72,7 +72,7 @@ jobs:
         run: |
           IMAGE_TAG=staging-${{ github.sha }}
           docker build \
-            -t $ECR_REPOSITORY:$IMAGE_TAG .
+            -t $ECR_REPOSITORY:latest .
 
 
   DeployStaging:
@@ -96,7 +96,7 @@ jobs:
         run: |
           IMAGE_TAG=prod-${{ github.sha }}
           docker build \
-            -t $ECR_REPOSITORY:$IMAGE_TAG .
+            -t $ECR_REPOSITORY:latest .
 
   DeployProd:
     needs: BuildProd
